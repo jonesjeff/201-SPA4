@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js misc - sound</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background-color: #000000;
+				margin: 0px;
+				overflow: hidden;
+				font-family:Monospace;
+				font-size:13px;
+				text-align:center;
+				font-weight: bold;
+				text-align:center;
+			}
+
+			
+
+		
+		</style>
+	</head>
+	<body>
+
+
+
+		<div id="container"></div>
+
+		<script src="scripts/three.js"></script>
+
+		<script src="scripts/FirstPersonControls.js"></script>
+
+		<script src="scripts/tween.min.js"></script>
+
+		<script src="scripts/ExplodeModifier.js"></script>
+		<script src="scripts/TessellateModifier.js"></script>
+
+		<script src="scripts/stats.min.js"></script>
+
+		<script src="scripts/Detector.js"></script>
+
+		<script type="x-shader/x-vertex" id="vertexshader">
+
+			uniform float amplitude;
+
+			attribute vec3 customColor;
+			attribute vec3 displacement;
+
+			varying vec3 vNormal;
+			varying vec3 vColor;
+
+			void main() {
+
+				vNormal = normal;
+				vColor = customColor;
+
+				vec3 newPosition = position + amplitude * displacement;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( newPosition, 1.0 );
+
+			}
+
+		</script>
+
+		<script type="x-shader/x-fragment" id="fragmentshader">
+
+			varying vec3 vNormal;
+			varying vec3 vColor;
+
+			void main() {
+
+				const float ambient = 0.005;
+
+				vec3 light = vec3( 1.0 );
+				light = normalize( light );
+
+				float directional = max( dot( vNormal, light ), 0.0 );
+
+				gl_FragColor = vec4( ( directional + ambient ) * vColor, 1.0 );
+				gl_FragColor.xyz = sqrt( gl_FragColor.xyz );
+
+			}
+
+		</script>
+
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container;
+			var camera, controls, scene, renderer;
+			var light, pointLight;
+
+			var mesh;
+			var material_sphere1, material_sphere2;
+
+			var boxGeometry, boxMesh, boxMaterial;
+
+			var sound1;
+			var intersects;
+			var popUp = false;
+
+			var scaleFactor = 1;
+			var opac = .7;
+
+			var WIDTH = window.innerWidth,
+				HEIGHT = window.innerHeight;
+
+			var raycaster = new THREE.Raycaster();
+			var mouse = new THREE.Vector2();
+
+			var clock = new THREE.Clock();
+
+			var objectsToHit = new THREE.Object3D();
+
+			init();
+			animate();
+
+			function init() {
+
+				container = document.getElementById( 'container' );
+
+				camera = new THREE.PerspectiveCamera( 50, window.innerWidth / window.innerHeight, 1, 10000 );
+				camera.position.set( 0, 25, 0 );
+
+				var listener = new THREE.AudioListener();
+				camera.add( listener );
+
+				controls = new THREE.FirstPersonControls( camera );
+
+				controls.movementSpeed = 70;
+				controls.lookSpeed = 0.05;
+				controls.noFly = true;
+				controls.lookVertical = false;
+
+				scene = new THREE.Scene();
+				scene.fog = new THREE.FogExp2( 0x000000, 0.0035 );
+
+				light = new THREE.DirectionalLight( 0xffffff );
+				light.position.set( 0, 0.5, 1 ).normalize();
+				scene.add( light );
+
+				//shaders
+
+				attributes = {
+
+					displacement: {	type: 'v3', value: [] },
+					customColor:  {	type: 'c', value: [] }
+
+				};
+
+				uniforms = {
+
+					amplitude: { type: "f", value: 0.0 }
+
+				};
+
+				var shaderMaterial = new THREE.ShaderMaterial( {
+
+					uniforms: 		uniforms,
+					attributes:     attributes,
+					vertexShader:   document.getElementById( 'vertexshader' ).textContent,
+					fragmentShader: document.getElementById( 'fragmentshader' ).textContent,
+					shading: 		THREE.FlatShading,
+					side: 			THREE.DoubleSide
+
+				});
+
+				
+
+				//PlaneMesh
+
+				var geometry = new THREE.PlaneGeometry( 50, 50, 50);
+
+				
+				geometry.dynamic = true;
+
+				geometry.center();
+
+				var tessellateModifier = new THREE.TessellateModifier( 2 );
+
+				for ( var i = 0; i < 1; i += 10 ) {
+
+					tessellateModifier.modify( geometry );
+
+				}
+
+				var explodeModifier = new THREE.ExplodeModifier();
+				explodeModifier.modify( geometry );
+
+				var vertices = geometry.vertices;
+
+				var colors = attributes.customColor.value;
+				var displacement = attributes.displacement.value;
+
+				var nv, v = 0;
+
+				for ( var f = 0; f < geometry.faces.length; f ++ ) {
+
+					var face = geometry.faces[ f ];
+
+					if ( face instanceof THREE.Face3 ) {
+
+						nv = 3;
+
+					} else {
+
+						nv = 4;
+
+					}
+
+					var h = 0.15 * Math.random();
+					var s = 0.5 + 0.5 * Math.random();
+					var l = 0.5 + 0.5 * Math.random();
+
+					var d = 10 * ( 0.5 - Math.random() );
+
+					var x = 2 * ( 0.5 - Math.random() );
+					var y = 2 * ( 0.5 - Math.random() );
+					var z = 2 * ( 0.5 - Math.random() );
+
+					for ( var i = 0; i < nv; i ++ ) {
+
+						colors[ v ] = new THREE.Color();
+						displacement[ v ] = new THREE.Vector3();
+
+						colors[ v ].setHSL( h, s, l );
+						colors[ v ].convertGammaToLinear();
+
+						displacement[ v ].set( x, y, z );
+
+						v += 1;
+
+					}
+
+				}
+
+				console.log( "faces", geometry.faces.length );
+
+				mesh = new THREE.Mesh( geometry, shaderMaterial );
+				//mesh.position.set( 0, 100, 0 );
+
+
+				objectsToHit.add( mesh );
+				scene.add( objectsToHit );
+
+				sound = new THREE.Audio( listener );
+				sound.load( 'audio/breathing.wav' );
+				sound.setRefDistance( 20 );
+				sound.autoplay = false;
+				sound.loop = true;
+				mesh.add( sound );
+
+				//boxGeo
+
+				 boxGeometry = new THREE.PlaneGeometry( 20, 50, 50 );
+				 boxMaterial = new THREE.MeshBasicMaterial( { color: 0xffffff, opacity: opac, transparent: true, side: THREE.DoubleSide, visible: true } );
+				 boxMesh = new THREE.Mesh( geometry, boxMaterial); 
+				 boxMesh.position.set( 0, -20, 0 );
+				// boxMesh.rotation.set( 90, 0, 0 );
+				 scene.add( boxMesh );
+				 scene.updateMatrix();
+				
+
+				// ground
+
+				var helper = new THREE.GridHelper( 500, 10 );
+				helper.color1.setHex( 0x444444 );
+				helper.color2.setHex( 0x444444 );
+				helper.position.y = 0.1;
+				scene.add( helper );
+
+				//
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				container.innerHTML = "";
+				container.appendChild( renderer.domElement );
+
+				stats = new Stats();
+				container.appendChild( stats.domElement );
+
+
+				//
+
+				window.addEventListener( 'resize', onWindowResize, false );
+				window.addEventListener( 'mousemove', onMouseMove, false );
+				document.addEventListener( 'mousedown', onDocumentMouseDown, false );
+				document.addEventListener( 'touchstart', onDocumentTouchStart, false );
+			}
+
+			function onMouseMove( event ) {
+
+			// calculate mouse position in normalized device coordinates
+			// (-1 to +1) for both components
+
+			mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+			mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;		
+
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				controls.handleResize();
+
+			}
+
+			function onDocumentTouchStart( event ) {
+				
+				event.preventDefault();
+				
+				event.clientX = event.touches[0].clientX;
+				event.clientY = event.touches[0].clientY;
+				onDocumentMouseDown( event );
+
+			}	
+
+			function onDocumentMouseDown( event ) {
+
+				event.preventDefault();
+
+				
+
+				for ( var i = 0; i < intersects.length; i++ ) {
+
+						if(scaleFactor > 0){
+							scaleFactor -= 0.05;
+						}
+
+						if(!popUp){
+
+						
+						
+						new TWEEN.Tween( boxMesh.position ).to( {
+							x: 0,
+							y: 80,
+							z: 0}, 3000 )
+							.easing( TWEEN.Easing.Elastic.Out).start();
+
+						new TWEEN.Tween( boxMesh.rotation ).to( {
+							x: 0,
+							y: 0, //Math.random() * 2 * Math.PI,
+							z: 0}, /*Math.random() * 2 * Math.PI },*/ 100 )
+						.easing( TWEEN.Easing.Elastic.Out).start();
+						popUp = true;
+					}else{
+
+						new TWEEN.Tween( boxMesh.position ).to( {
+							x: 0,
+							y: 0,
+							z: 0}, 3000 )
+							.easing( TWEEN.Easing.Elastic.Out).start();
+
+						new TWEEN.Tween( boxMesh.rotation ).to( {
+							x: 0,
+							y: 0, //Math.random() * 2 * Math.PI,
+							z: 0}, /*Math.random() * 2 * Math.PI },*/ 100 )
+						.easing( TWEEN.Easing.Elastic.Out).start();
+						popUp = false;
+						
+						
+						}
+
+					
+
+					}
+					
+						
+					
+
+			}
+
+
+			function animate() {
+
+				if(!sound.isPlaying){
+					sound.play();
+				}
+				if(opac < 0){
+					opac = 0;
+				}else if(opac > .7){
+					opac = .7;
+				}
+
+				if(!popUp){
+					
+						boxMesh.material.opacity = opac;
+						opac -= 0.05;
+					
+					//boxMesh.material.visible = false;
+				}else{
+					
+						boxMesh.material.opacity = opac;
+						opac += 0.05;
+						
+						boxMesh.material.visible = true;			
+				}
+
+
+				// update the picking ray with the camera and mouse position	
+				raycaster.setFromCamera( mouse, camera );	
+
+				// calculate objects intersecting the picking ray
+				intersects = raycaster.intersectObjects( objectsToHit.children );
+
+				if(intersects.length < 1){
+
+						if(scaleFactor < 1) {
+							scaleFactor += 0.01;
+						}
+
+						var breatheTime = Date.now() * 0.001;
+						uniforms.amplitude.value =  Math.sin(scaleFactor) * Math.sin(breatheTime * 1.5) + (3 * scaleFactor);
+						console.log(breatheTime);
+						sound.play();
+
+				}else{
+					for ( var i = 0; i < intersects.length; i++ ) {
+
+						if(scaleFactor > 0){
+							scaleFactor -= 0.05;
+						}
+
+						var breatheTime = Date.now() * 0.001;
+						uniforms.amplitude.value = Math.sin(scaleFactor) * Math.sin( breatheTime * 1.5) + (3 * scaleFactor);
+						//intersects[ i ].face.material.color.set( 0xff0000 );
+						console.log("object hit");
+						sound.stop();
+					}
+				}
+
+				requestAnimationFrame( animate );
+				render();
+
+			}
+
+
+			function render() {
+
+				
+
+				var delta = clock.getDelta();
+					
+
+				controls.update( delta );
+				TWEEN.update();
+				
+				renderer.render( scene, camera );
+
+			}
+
+		</script>
+
+	</body>
+</html>
